@@ -1,0 +1,34 @@
+[package]
+name = "task-tracker"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "A small personal task tracker built as a course-work exercise in software engineering practices."
+license = "MIT"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+csv = "1.3"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.10", features = ["v4", "serde"] }
+anyhow = "1.0"
+thiserror = "1.0"
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.1"
+tempfile = "3.10"
+# chrono and serde_json are already non-optional deps; listing them here makes
+# them unambiguously importable from `tests/` regardless of Cargo version.
+chrono = { version = "0.4", features = ["serde"] }
+serde_json = "1.0"
+
+[lib]
+name = "task_tracker"
+path = "src/lib.rs"
+
+[[bin]]
+name = "task-tracker"
+path = "src/main.rs"
