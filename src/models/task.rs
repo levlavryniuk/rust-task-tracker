@@ -38,6 +38,13 @@ impl FromStr for TaskId {
         if let Ok(u) = Uuid::parse_str(s) {
             return Ok(TaskId(u));
         }
+        // Short-prefix lookup is handled by TaskService; the parser only
+        // validates that the input is a reasonable hex prefix here.
+        if s.len() >= 4 && s.chars().all(|c| c.is_ascii_hexdigit()) {
+            // We cannot resolve a real UUID from a prefix alone, but we accept
+            // the shape; the service layer does prefix lookup.
+            return Err(ParseTaskIdError(format!("prefix-only id: {s}")));
+        }
         Err(ParseTaskIdError(s.to_string()))
     }
 }
@@ -118,6 +125,14 @@ impl Task {
             Some(d) => !self.done && d < now,
             None => false,
         }
+    }
+
+    /// True if the task's text content matches the keyword (case-insensitive).
+    /// Lives on the model so service-layer search stays a one-liner.
+    pub fn matches_keyword(&self, kw: &str) -> bool {
+        let kw_l = kw.to_lowercase();
+        self.title.to_lowercase().contains(&kw_l)
+            || self.description.to_lowercase().contains(&kw_l)
     }
 }
 
