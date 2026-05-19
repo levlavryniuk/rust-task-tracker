@@ -1,6 +1,8 @@
 //! Business-logic layer. Holds the in-memory task list and brokers all
 //! read/write traffic to the storage backend.
 
+use std::cmp::Ordering;
+
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 
@@ -9,6 +11,18 @@ use crate::storage::TaskStore;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortKey { PriorityDesc, DueAsc }
+
+impl SortKey {
+    /// Returns a comparator for this sort key. Extracted from `sorted()` in
+    /// the REFACTOR step of TDD so that the strategy is reusable and unit-
+    /// testable in isolation.
+    pub fn comparator(self) -> fn(&Task, &Task) -> Ordering {
+        match self {
+            SortKey::PriorityDesc => |a, b| b.priority.cmp(&a.priority),
+            SortKey::DueAsc => |a, b| a.due.cmp(&b.due),
+        }
+    }
+}
 
 pub struct TaskService<S: TaskStore> {
     store: S,
@@ -75,18 +89,10 @@ impl<S: TaskStore> TaskService<S> {
         }).collect()
     }
 
-    // Minimal implementation to pass the RED test. Inline, naïve — we'll
-    // refactor next.
     pub fn sorted(&self, key: SortKey) -> Vec<&Task> {
         let mut v: Vec<&Task> = self.tasks.iter().collect();
-        match key {
-            SortKey::PriorityDesc => {
-                v.sort_by(|a, b| b.priority.cmp(&a.priority));
-            }
-            SortKey::DueAsc => {
-                v.sort_by(|a, b| a.due.cmp(&b.due));
-            }
-        }
+        let cmp = key.comparator();
+        v.sort_by(|a, b| cmp(a, b));
         v
     }
 }
