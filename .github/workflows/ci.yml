@@ -15,8 +15,8 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.42.0"          # BUG: too old; will be fixed in a follow-up commit
-          components: clippy
+          toolchain: stable
+          components: clippy, llvm-tools-preview
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -33,7 +33,7 @@ jobs:
       - name: Test
         run: cargo test --all-targets --verbose
 
-      - name: Clippy (deny warnings)
+      - name: Clippy (report warnings)
         run: cargo clippy --all-targets
 
       - name: Install cargo-llvm-cov
