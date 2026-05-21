@@ -1,6 +1,7 @@
 //! CLI surface. Uses clap's derive macros so the argument grammar stays close
 //! to the type definitions.
 
+use std::fs::File;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
@@ -9,6 +10,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::models::task::{Priority, Task};
 use crate::services::task_service::{SortKey, TaskService};
+use crate::services::export_service;
 use crate::storage::json_storage::JsonStore;
 
 #[derive(Parser, Debug)]
@@ -47,10 +49,19 @@ pub enum Command {
         to: Option<String>,
     },
     Stats,
+    Export {
+        #[arg(value_enum)]
+        format: ExportFmt,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
 pub enum SortArg { Priority, Due }
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum ExportFmt { Json, Csv }
 
 impl From<SortArg> for SortKey {
     fn from(s: SortArg) -> Self {
@@ -104,6 +115,25 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             print_tasks(&hits);
         }
         Command::Stats => print_stats(svc.all()),
+        Command::Export { format, out } => {
+            let fmt = match format { ExportFmt::Json => "json", ExportFmt::Csv => "csv" };
+            match out {
+                Some(path) => {
+                    let f = File::create(&path)
+                        .with_context(|| format!("creating {}", path.display()))?;
+                    export_service::export_to(svc.all(), fmt, f)?;
+                    println!("wrote {}", path.display());
+                }
+                None => {
+                    let text = match fmt {
+                        "json" => export_service::export_json(svc.all())?,
+                        "csv"  => export_service::export_csv(svc.all())?,
+                        _ => unreachable!(),
+                    };
+                    println!("{text}");
+                }
+            }
+        }
     }
     Ok(())
 }
