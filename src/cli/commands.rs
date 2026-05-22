@@ -1,5 +1,7 @@
-//! CLI surface. Uses clap's derive macros so the argument grammar stays close
-//! to the type definitions.
+//! CLI surface. The big `dispatch` match has been split into per-command
+//! handlers (Extract Method) so each branch is small and individually
+//! testable. The string `"fmt"` argument has been replaced by the typed
+//! `ExportFmt` enum throughout (Replace Primitive Obsession).
 
 use std::fs::File;
 use std::path::PathBuf;
@@ -8,10 +10,11 @@ use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use clap::{Parser, Subcommand, ValueEnum};
 
-use crate::models::task::{Priority, Task};
+use crate::models::task::{Priority, Task, TaskId};
 use crate::services::task_service::{SortKey, TaskService};
 use crate::services::export_service;
 use crate::storage::json_storage::JsonStore;
+use crate::storage::TaskStore;
 
 #[derive(Parser, Debug)]
 #[command(name = "task-tracker", version, about = "A tiny task tracker.")]
@@ -60,8 +63,14 @@ pub enum Command {
 #[derive(Copy, Clone, Debug, ValueEnum)]
 pub enum SortArg { Priority, Due }
 
-#[derive(Copy, Clone, Debug, ValueEnum)]
+#[derive(Copy, Clone, Debug, ValueEnum, PartialEq, Eq)]
 pub enum ExportFmt { Json, Csv }
+
+impl ExportFmt {
+    fn as_str(self) -> &'static str {
+        match self { ExportFmt::Json => "json", ExportFmt::Csv => "csv" }
+    }
+}
 
 impl From<SortArg> for SortKey {
     fn from(s: SortArg) -> Self {
@@ -75,74 +84,94 @@ impl From<SortArg> for SortKey {
 pub fn dispatch(cli: Cli) -> Result<()> {
     let store = JsonStore::new(&cli.data_file);
     let mut svc = TaskService::open(store)?;
-
     match cli.command {
-        Command::Add { title, description, priority, due } => {
-            let due = match due { Some(s) => Some(parse_date(&s)?), None => None };
-            let task = Task::try_new(title, description, priority, due)
-                .map_err(|e| anyhow!("{e}"))?;
-            println!("created {}", task.id.short());
-            svc.add(task);
-            svc.flush()?;
+        Command::Add { title, description, priority, due }
+            => handle_add(&mut svc, title, description, priority, due),
+        Command::List { sort }                  => handle_list(&svc, sort),
+        Command::Delete { id }                  => handle_delete(&mut svc, &id),
+        Command::Done { id }                    => handle_done(&mut svc, &id),
+        Command::Search { keyword }             => handle_search(&svc, &keyword),
+        Command::Filter { priority, from, to }  => handle_filter(&svc, priority, from, to),
+        Command::Stats                          => { print_stats(svc.all()); Ok(()) },
+        Command::Export { format, out }         => handle_export(&svc, format, out),
+    }
+}
+
+fn handle_add<S: TaskStore>(svc: &mut TaskService<S>,
+                            title: String, description: String,
+                            priority: Priority, due: Option<String>) -> Result<()> {
+    let due = due.map(|s| parse_date(&s)).transpose()?;
+    let task = Task::try_new(title, description, priority, due)
+        .map_err(|e| anyhow!("{e}"))?;
+    println!("created {}", task.id.short());
+    svc.add(task);
+    svc.flush()
+}
+
+fn handle_list<S: TaskStore>(svc: &TaskService<S>, sort: Option<SortArg>) -> Result<()> {
+    let tasks: Vec<&Task> = match sort {
+        Some(s) => svc.sorted(s.into()),
+        None => svc.all().iter().collect(),
+    };
+    print_tasks(&tasks);
+    Ok(())
+}
+
+fn handle_delete<S: TaskStore>(svc: &mut TaskService<S>, id: &str) -> Result<()> {
+    let id = resolve(svc, id)?;
+    svc.delete(id).map_err(|e| anyhow!("{e}"))?;
+    svc.flush()?;
+    println!("deleted {}", id.short());
+    Ok(())
+}
+
+fn handle_done<S: TaskStore>(svc: &mut TaskService<S>, id: &str) -> Result<()> {
+    let id = resolve(svc, id)?;
+    svc.set_done(id, true).map_err(|e| anyhow!("{e}"))?;
+    svc.flush()?;
+    println!("done {}", id.short());
+    Ok(())
+}
+
+fn handle_search<S: TaskStore>(svc: &TaskService<S>, keyword: &str) -> Result<()> {
+    let hits = svc.search(keyword);
+    print_tasks(&hits);
+    Ok(())
+}
+
+fn handle_filter<S: TaskStore>(svc: &TaskService<S>,
+                               priority: Option<Priority>,
+                               from: Option<String>, to: Option<String>) -> Result<()> {
+    let from = from.map(|s| parse_date(&s)).transpose()?;
+    let to   = to  .map(|s| parse_date(&s)).transpose()?;
+    let hits = svc.filter(priority, from, to);
+    print_tasks(&hits);
+    Ok(())
+}
+
+fn handle_export<S: TaskStore>(svc: &TaskService<S>,
+                               format: ExportFmt, out: Option<PathBuf>) -> Result<()> {
+    match out {
+        Some(path) => {
+            let f = File::create(&path)
+                .with_context(|| format!("creating {}", path.display()))?;
+            export_service::export_to(svc.all(), format.as_str(), f)?;
+            println!("wrote {}", path.display());
         }
-        Command::List { sort } => {
-            let tasks: Vec<&Task> = match sort {
-                Some(s) => svc.sorted(s.into()),
-                None => svc.all().iter().collect(),
+        None => {
+            let text = match format {
+                ExportFmt::Json => export_service::export_json(svc.all())?,
+                ExportFmt::Csv  => export_service::export_csv(svc.all())?,
             };
-            print_tasks(&tasks);
-        }
-        Command::Delete { id } => {
-            let id = resolve(&svc, &id)?;
-            svc.delete(id).map_err(|e| anyhow!("{e}"))?;
-            svc.flush()?;
-            println!("deleted {}", id.short());
-        }
-        Command::Done { id } => {
-            let id = resolve(&svc, &id)?;
-            svc.set_done(id, true).map_err(|e| anyhow!("{e}"))?;
-            svc.flush()?;
-            println!("done {}", id.short());
-        }
-        Command::Search { keyword } => {
-            let hits = svc.search(&keyword);
-            print_tasks(&hits);
-        }
-        Command::Filter { priority, from, to } => {
-            let from = from.map(|s| parse_date(&s)).transpose()?;
-            let to   = to  .map(|s| parse_date(&s)).transpose()?;
-            let hits = svc.filter(priority, from, to);
-            print_tasks(&hits);
-        }
-        Command::Stats => print_stats(svc.all()),
-        Command::Export { format, out } => {
-            let fmt = match format { ExportFmt::Json => "json", ExportFmt::Csv => "csv" };
-            match out {
-                Some(path) => {
-                    let f = File::create(&path)
-                        .with_context(|| format!("creating {}", path.display()))?;
-                    export_service::export_to(svc.all(), fmt, f)?;
-                    println!("wrote {}", path.display());
-                }
-                None => {
-                    let text = match fmt {
-                        "json" => export_service::export_json(svc.all())?,
-                        "csv"  => export_service::export_csv(svc.all())?,
-                        _ => unreachable!(),
-                    };
-                    println!("{text}");
-                }
-            }
+            println!("{text}");
         }
     }
     Ok(())
 }
 
-fn resolve<S: crate::storage::TaskStore>(svc: &TaskService<S>, s: &str)
-    -> Result<crate::models::task::TaskId>
-{
+fn resolve<S: TaskStore>(svc: &TaskService<S>, s: &str) -> Result<TaskId> {
     use std::str::FromStr;
-    if let Ok(id) = crate::models::task::TaskId::from_str(s) {
+    if let Ok(id) = TaskId::from_str(s) {
         return Ok(id);
     }
     svc.resolve_prefix(s).ok_or_else(|| anyhow!("no task matches id prefix '{s}'"))
