@@ -18,6 +18,16 @@ impl JsonStore {
     pub fn new(path: impl AsRef<Path>) -> Self {
         Self { path: path.as_ref().to_path_buf() }
     }
+
+    fn ensure_parent(&self) {
+        if let Some(parent) = self.path.parent() {
+            if !parent.as_os_str().is_empty() {
+                let _ = fs::create_dir_all(parent);
+            }
+        }
+    }
+
+    fn tmp_path(&self) -> PathBuf { self.path.with_extension("json.tmp") }
 }
 
 impl TaskStore for JsonStore {
@@ -36,17 +46,13 @@ impl TaskStore for JsonStore {
     }
 
     fn save(&self, tasks: &[Task]) -> Result<()> {
-        if let Some(parent) = self.path.parent() {
-            if !parent.as_os_str().is_empty() {
-                fs::create_dir_all(parent).ok();
-            }
-        }
-        let tmp = self.path.with_extension("json.tmp");
+        self.ensure_parent();
+        let tmp = self.tmp_path();
         let mut f = fs::File::create(&tmp)
             .with_context(|| format!("creating {}", tmp.display()))?;
         let buf = serde_json::to_vec_pretty(tasks)?;
         f.write_all(&buf)?;
-        f.sync_all().ok();
+        let _ = f.sync_all();
         fs::rename(&tmp, &self.path)
             .with_context(|| format!("renaming {} -> {}", tmp.display(), self.path.display()))?;
         Ok(())
