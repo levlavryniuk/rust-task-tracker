@@ -1,6 +1,6 @@
 # rust-task-tracker
 
-[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
+[![CI](https://github.com/levlavryniuk/rust-task-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/levlavryniuk/rust-task-tracker/actions/workflows/ci.yml)
 
 A command-line personal task tracker written in Rust. Built as the term project
 for the Software Engineering course (3rd-year undergraduate). The application
