@@ -13,21 +13,24 @@ acceptance testing, TDD, CI, design patterns, refactoring, and metrics.
 - Create, list, update, delete tasks (CRUD)
 - Search by keyword across title and description
 - Filter by priority and by due-date range
-- Sort by due date or by priority
-- Persistence to JSON between sessions
-- Export to JSON and CSV
+- Sort by due date or by priority (Strategy pattern)
+- Persistence to JSON between sessions (atomic-rename writes)
+- Export to JSON and CSV (Template Method)
 - Statistics: counts by priority, overdue items, completion rate
-- Undo / redo of mutating operations (Command pattern)
+- Factory Method for the common task flavours
+- Undo / redo scaffolding (Command pattern, UndoStack)
 
 ## Build & run
 
 ```sh
 cargo build --release
 cargo run -- --help
+cargo run -- add "buy bread" --priority high --due 2026-06-01
+cargo run -- list --sort priority
+cargo run -- search bread
+cargo run -- export json --out tasks.json
+cargo run -- stats
 ```
-
-Data is persisted to `tasks.json` in the working directory by default; override
-with `--data-file <path>`.
 
 ## Run tests
 
@@ -43,18 +46,13 @@ cargo install cargo-llvm-cov  # one-time
 cargo llvm-cov --summary-only
 ```
 
-## Project layout
-
-See [Section 5 of the spec](docs/) — `src/` is split into `models/`,
-`services/`, `storage/`, `patterns/`, and `cli/`.
-
 ## Documentation
 
-- [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md)
-- [`docs/TDD_EVIDENCE.md`](docs/TDD_EVIDENCE.md)
-- [`docs/ESTIMATION.md`](docs/ESTIMATION.md)
-- [`docs/DESIGN_PATTERNS.md`](docs/DESIGN_PATTERNS.md)
-- [`docs/REFACTORING_REPORT.md`](docs/REFACTORING_REPORT.md)
+- [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md) — testing strategy and inventory
+- [`docs/TDD_EVIDENCE.md`](docs/TDD_EVIDENCE.md) — red/green/refactor cycle
+- [`docs/ESTIMATION.md`](docs/ESTIMATION.md) — story points vs actuals
+- [`docs/DESIGN_PATTERNS.md`](docs/DESIGN_PATTERNS.md) — patterns used, with rationale
+- [`docs/REFACTORING_REPORT.md`](docs/REFACTORING_REPORT.md) — smells, fixes, metrics
 
 ## License
 
